@@ -1,0 +1,6 @@
+pyrogram==2.0.106
+TgCrypto==1.2.5
+python-dotenv==1.0.0
+asyncio
+aiohttp==3.9.1
+pyromod==1.5
