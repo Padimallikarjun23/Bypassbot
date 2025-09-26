@@ -43,7 +43,13 @@ BYPASS_BOT_USERNAME = "DD_Bypass_Bot"
 TARGET_GROUP_ID = int(os.environ.get("TARGET_GROUP_ID", "-1002900244842"))
 
 # Admin Configuration
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "7901412493"))
+# Comma-separated list of admin IDs in .env like:
+# ADMIN_IDS=123456789,987654321,111222333
+ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", str(os.environ.get("ADMIN_IDS", "7901412493,865764383"))).split(",") if x.strip().isdigit()]
+
+# Keep backward compatibility: if no ADMIN_IDS, fall back to single OWNER_ID
+if not ADMIN_IDS and os.getenv("ADMIN_IDS"):
+    ADMIN_IDS = [int(os.environ.get("ADMIN_IDS"))]
 
 # Directories
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -59,5 +65,5 @@ if not BYPASS_SESSION_STRING:
 print("✅ Configuration loaded successfully!")
 print(f"📱 API_ID: {API_ID}")
 print(f"🤖 Bot Token: {BOT_TOKEN[:20]}..." if BOT_TOKEN else "❌ Bot Token missing")
-print(f"👑 Admin ID: {ADMIN_ID}")
+print(f"👑 Admin IDs: {ADMIN_IDS}")
 print(f"📊 Target Group: {TARGET_GROUP_ID}")
