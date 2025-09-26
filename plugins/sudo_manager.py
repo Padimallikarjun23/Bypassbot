@@ -14,7 +14,7 @@ async def sudo_handler(client, message):
 
     args = message.text.split()[1:]
     if not args:
-        await message.reply("Usage: /sudo add <user_id> | remove <user_id> | list")
+        await message.reply("Usage: /sudo_add <user_id> | /sudo_remove <user_id> | list")
         return
 
     subcmd = args[0].lower()
