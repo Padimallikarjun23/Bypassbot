@@ -2,13 +2,16 @@
 import os
 import json
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-from config import DATA_DIR, ADMIN_ID
+from typing import Optional, Dict, Any, List
+from config import DATA_DIR
 from dotenv import load_dotenv
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI", "").strip()
 DB_NAME = os.getenv("DB_NAME", "bypass_bot")
+
+# Static admins from .env (comma-separated)
+ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
 
 # Try to use pymongo if MONGO_URI provided, otherwise fallback to file-based storage
 try:
@@ -24,20 +27,26 @@ except Exception as e:
     print(f"[WARN] Could not initialize MongoDB client: {e}")
     USING_MONGO = False
 
+
 class UserManager:
     def __init__(self):
         self.data_file = os.path.join(DATA_DIR, "user_data.json")
         os.makedirs(DATA_DIR, exist_ok=True)
         if not USING_MONGO:
             self.user_data = self._load_data()
-            if "admin_id" not in self.user_data:
-                self.user_data["admin_id"] = ADMIN_ID
+            if "admins" not in self.user_data:
+                self.user_data["admins"] = ADMIN_IDS[:]  # init with static admins
                 self._save_data()
 
     # ---------------------- File fallback ----------------------
     def _load_data(self) -> Dict[str, Any]:
         if not os.path.exists(self.data_file):
-            default = {"users": {}, "admin_id": ADMIN_ID, "total_users": [], "banned_users": []}
+            default = {
+                "users": {},
+                "admins": ADMIN_IDS[:],
+                "total_users": [],
+                "banned_users": []
+            }
             with open(self.data_file, "w", encoding="utf-8") as f:
                 json.dump(default, f, indent=2)
             return default
@@ -45,7 +54,7 @@ class UserManager:
             with open(self.data_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
-            return {"users": {}, "admin_id": ADMIN_ID, "total_users": [], "banned_users": []}
+            return {"users": {}, "admins": ADMIN_IDS[:], "total_users": [], "banned_users": []}
 
     def _save_data(self):
         with open(self.data_file, "w", encoding="utf-8") as f:
@@ -56,15 +65,53 @@ class UserManager:
         users_col.update_one({"user_id": int(user_id)}, {"$set": {"user_id": int(user_id), **data}}, upsert=True)
 
     def _mongo_get_user(self, user_id: int) -> Optional[dict]:
-        doc = users_col.find_one({"user_id": int(user_id)})
-        return doc
+        return users_col.find_one({"user_id": int(user_id)})
 
     def _mongo_set_field(self, user_id: int, field: str, value):
         users_col.update_one({"user_id": int(user_id)}, {"$set": {field: value}}, upsert=True)
 
+    # ---------------------- Admin Management ----------------------
+    def get_admins(self) -> List[int]:
+        if USING_MONGO:
+            docs = users_col.find({"is_admin": True})
+            db_admins = [doc["user_id"] for doc in docs]
+            return list(set(ADMIN_IDS + db_admins))
+        else:
+            return list(set(ADMIN_IDS + self.user_data.get("admins", [])))
+
+    def add_admin(self, user_id: int) -> bool:
+        if USING_MONGO:
+            if users_col.find_one({"user_id": user_id, "is_admin": True}):
+                return False
+            users_col.update_one({"user_id": user_id}, {"$set": {"is_admin": True}}, upsert=True)
+            return True
+        else:
+            admins = self.user_data.setdefault("admins", [])
+            if user_id in admins:
+                return False
+            admins.append(user_id)
+            self._save_data()
+            return True
+
+    def remove_admin(self, user_id: int) -> bool:
+        if USING_MONGO:
+            if not users_col.find_one({"user_id": user_id, "is_admin": True}):
+                return False
+            users_col.update_one({"user_id": user_id}, {"$unset": {"is_admin": ""}})
+            return True
+        else:
+            admins = self.user_data.setdefault("admins", [])
+            if user_id not in admins:
+                return False
+            admins.remove(user_id)
+            self._save_data()
+            return True
+
+    def is_admin(self, user_id: int) -> bool:
+        return user_id in self.get_admins()
+
     # ---------------------- Public API ----------------------
     def add_user(self, user_id: int, username: Optional[str]=None):
-        """Register a user (creates document/entry)."""
         payload = {
             "username": username or "",
             "join_date": datetime.utcnow().isoformat(),
@@ -79,16 +126,6 @@ class UserManager:
             if uid not in self.user_data["total_users"]:
                 self.user_data["total_users"].append(uid)
             self._save_data()
-
-    def is_admin(self, user_id: int) -> bool:
-        if USING_MONGO:
-            admin = os.getenv("ADMIN_ID")
-            try:
-                return int(admin) == int(user_id)
-            except Exception:
-                return False
-        else:
-            return int(self.user_data.get("admin_id", ADMIN_ID)) == int(user_id)
 
     def set_premium(self, user_id: int, days: int):
         expiry = datetime.utcnow() + timedelta(days=days)
@@ -157,10 +194,8 @@ class UserManager:
                 self._save_data()
 
     def migrate_old_data(self):
-        """If using Mongo and local JSON has users, migrate them once."""
         if not USING_MONGO:
             return
-        # load existing json if present
         try:
             if os.path.exists(self.data_file):
                 with open(self.data_file, "r", encoding="utf-8") as f:
@@ -172,9 +207,9 @@ class UserManager:
         except Exception as e:
             print(f"[MIGRATE] Migration error: {e}")
 
-# instantiate global manager
+
+# Instantiate global manager
 user_manager = UserManager()
-# run migration if needed
 try:
     user_manager.migrate_old_data()
 except Exception:
