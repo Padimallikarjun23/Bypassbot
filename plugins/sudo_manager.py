@@ -1,47 +1,40 @@
-from pyrogram import Client, filters
-from config import ADMIN_IDS
-from plugins.user_manager import user_manager
+from pyrogram import filters
+from config import OWNER_ID  # Your super sudo
 
-# Only the main owner (first ADMIN_ID) can run /sudo
-SUPER_SUDO_ID = ADMIN_IDS[0] if ADMIN_IDS else None
-
-@Client.on_message(filters.command("sudo") & filters.private)
+@app.on_message(filters.command("sudo") & filters.private)  # Or group if needed
 async def sudo_handler(client, message):
-    user_id = message.from_user.id
-    if SUPER_SUDO_ID is None or user_id != SUPER_SUDO_ID:
-        await message.reply("❌ Unauthorized! Only the bot owner can use this.")
-        return
-
+    if message.from_user.id != OWNER_ID:
+        return await message.reply("❌ Unauthorized!")
+    
     args = message.text.split()[1:]
     if not args:
-        await message.reply("Usage: /sudo_add <user_id> | /sudo_remove <user_id> | list")
-        return
-
+        return await message.reply("Usage: /sudo add <user_id> | remove <user_id> | list")
+    
     subcmd = args[0].lower()
     if subcmd == "add" and len(args) > 1:
         try:
-            new_id = int(args[1])
-            if user_manager.add_admin(new_id):
-                await message.reply(f"✅ Added {new_id} as admin.")
-            else:
-                await message.reply(f"⚠️ {new_id} is already an admin.")
+            uid = int(args[1])
+            if uid == OWNER_ID:
+                return await message.reply("⚠️ Can't add the super sudo!")
+            user_manager.add_admin(uid)
+            await message.reply(f"✅ Added {uid} as admin.")
         except ValueError:
-            await message.reply("❌ Invalid user ID! Must be a number.")
-
+            await message.reply("❌ Invalid ID!")
+    
     elif subcmd == "remove" and len(args) > 1:
         try:
-            rem_id = int(args[1])
-            if user_manager.remove_admin(rem_id):
-                await message.reply(f"✅ Removed {rem_id} from admins.")
-            else:
-                await message.reply(f"⚠️ {rem_id} is not an admin.")
+            uid = int(args[1])
+            if uid == OWNER_ID:
+                return await message.reply("⚠️ Can't remove the super sudo!")
+            user_manager.remove_admin(uid)
+            await message.reply(f"✅ Removed {uid}.")
         except ValueError:
-            await message.reply("❌ Invalid user ID! Must be a number.")
-
+            await message.reply("❌ Invalid ID!")
+    
     elif subcmd == "list":
         admins = user_manager.get_admins()
-        admin_list = "\n".join(map(str, admins))
-        await message.reply(f"👑 Current admins:\n{admin_list or 'None'}")
-
+        text = "Admins:\n" + "\n".join(map(str, admins)) if admins else "None"
+        await message.reply(text)
+    
     else:
-        await message.reply("Invalid subcommand! Use: add, remove, or list.")
+        await message.reply("Invalid: add/remove/list")
