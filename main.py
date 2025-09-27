@@ -1,16 +1,13 @@
-# main.py
 import os
 import asyncio
 import logging
-import sys
-from aiohttp import web
 from datetime import datetime
-import pyromod.listen
+from aiohttp import web
 from pyrogram import Client
 from pyrogram.enums import ParseMode
 from pyrogram.types import BotCommand
-from config import *
-from database.database import full_userbase
+from config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, PORT
+from plugins.bypass_handler import start_tasks, set_bot_instance, check_premium_expiry
 
 # Configure logging
 logging.basicConfig(
@@ -18,12 +15,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-from handlers.keep_alive import KeepAliveHandler
-
-name ="""
- BYPASS BOT BY ATHITHAN
-"""
 
 class BypassBot(Client):
     def __init__(self):
@@ -37,24 +28,7 @@ class BypassBot(Client):
             in_memory=True
         )
         self.logger = logger
-        self.ping_task = None
-
-    async def broadcast_to_users(self, message):
-        """Send a message to all users in the database."""
-        try:
-            users = await full_userbase()
-            success_count = 0
-            for user_id in users:
-                try:
-                    await self.send_message(chat_id=user_id, text=message)
-                    success_count += 1
-                    await asyncio.sleep(0.1)
-                except Exception as e:
-                    logger.warning(f"Failed to send message to user {user_id}: {e}")
-            return success_count
-        except Exception as e:
-            logger.error(f"Broadcast failed: {e}")
-            return 0
+        self.uptime = None
 
     async def start(self):
         try:
@@ -69,168 +43,116 @@ class BypassBot(Client):
                 BotCommand("help", "Get help about using the bot ℹ️"),
                 BotCommand("by", "Bypass a shortened URL 🔄"),
                 BotCommand("stats", "Check your usage statistics 📊"),
-                BotCommand("ping", "Check if bot is alive 🏓"),
-                BotCommand("about", "About the bot ℹ️"),
-                BotCommand("broadcast", "Send message to all users (admin only) 📢"),
-                BotCommand("users", "Get user statistics (admin only) 👥"),
-                BotCommand("addpre", "for add pro users"),
-                BotCommand("removepre", "for remove pro users")
+                BotCommand("commands", "List all available commands 📋"),
+                BotCommand("addpre", "Add premium user (admin only) 💎"),
+                BotCommand("removepre", "Remove premium user (admin only) 🛑"),
+                BotCommand("addsudo", "Add sudo admin (owner only) 👑"),
+                BotCommand("remsudo", "Remove sudo admin (owner only) 🛑"),
+                BotCommand("sudoers", "List sudo admins (owner only) 📋"),
+                BotCommand("ban", "Ban a user (admin only) 🚫"),
+                BotCommand("unban", "Unban a user (admin only) ✅"),
+                BotCommand("broadcast", "Send message to all users (admin only) 📢")
             ]
             await self.set_bot_commands(commands)
             logger.info("Bot commands set in menu")
 
-            # Start web server
+            # Initialize plugins
+            set_bot_instance(self)
+            await start_tasks()
+            logger.info("✅ Plugins initialized successfully")
+
+            # Start premium expiry checker
+            asyncio.create_task(check_premium_expiry())
+            logger.info("✅ Premium expiry checker started")
+
+            # Start web server for keep-alive (e.g., Railway)
+            async def handle_ping(request):
+                return web.Response(text="Bot is alive!")
             app = web.Application()
-            keep_alive_handler = KeepAliveHandler()
-            keep_alive_handler.setup_routes(app)
+            app.add_routes([web.get('/ping', handle_ping)])
             runner = web.AppRunner(app)
             await runner.setup()
             await web.TCPSite(runner, "0.0.0.0", PORT).start()
+            logger.info(f"Web server started on port {PORT}")
 
-            # Send startup message to admin
-            try:
-                await self.send_message(
-                    chat_id=OWNER_ID,
-                    text="<b>✅ Bypass Bot Started Successfully!</b>\n\nDeveloped by @Malli4U_Admin_Bot"
-                )
-            except Exception as e:
-                logger.error(f"Failed to send startup message: {e}")
+            # Send startup notification to admin
+            startup_message = (
+                f"🚀 **Bypass Bot Started!**\n\n"
+                f"**Bot Username:** @{me.username}\n"
+                f"**Bot ID:** `{me.id}`\n"
+                f"**Status:** Online ✅\n"
+                f"**Uptime:** {self.uptime.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"💎 **Premium Settings:**\n"
+                f"┣ **Price:** ₹25 per month\n"
+                f"┣ **Free Limit:** 3 links/day\n"
+                f"┣ **Premium:** Unlimited\n"
+                f"┗ **MongoDB:** Connected\n\n"
+                f"👨‍💻 **Developer:** @Malli4U_Admin_Bot\n"
+                f"📞 **Support:** @M4U_Admin_Bot\n\n"
+                f"🎉 **All systems operational!**"
+            )
+            await self.send_message(
+                chat_id=ADMIN_ID,
+                text=startup_message,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            logger.info("Startup notification sent to admin")
 
         except Exception as e:
             if "AUTH_KEY_DUPLICATED" in str(e):
-                logger.error(
-                    "Session conflict detected! Make sure the bot is not running elsewhere."
-                )
-                sys.exit(1)
-            raise e
-
-    async def stop(self, *args):
-        """Stop the bot and cleanup tasks."""
-        if self.ping_task:
-            self.ping_task.cancel()
-            try:
-                await self.ping_task
-            except asyncio.CancelledError:
-                pass
-        await super().stop()
-        logger.info("Bot stopped.")
-
-    def run(self):
-        """Run the bot."""
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(self.start())
-        logger.info("Bot is now running. Developed by @athithan_220")
-        try:
-            loop.run_forever()
-        except KeyboardInterrupt:
-            logger.info("Shutting down...")
-        finally:
-            loop.run_until_complete(self.stop())
-
-if __name__ == "__main__":
-    try:
-        BypassBot().run()
-    except Exception as e:
-        LOGGER.error(f"Critical error: {e}")
-        sys.exit(1)
-
-    async def start(self):
-        try:
-            await super().start()
-            me = await self.get_me()
-            logger.info(f"🚀 Advanced Bypass Bot started successfully as @{me.username}")
-            
-            # Initialize plugins
-            try:
-                from plugins.bypass_handler import start_tasks, set_bot_instance
-                set_bot_instance(self)
-                await start_tasks()
-                logger.info("✅ All plugins initialized successfully")
-            except Exception as e:
-                logger.error(f"⚠️ Plugin initialization failed: {e}")
-            
-            # Send startup notification to admin
-            if ADMIN_ID:
-                try:
-                    startup_message = (
-                        f"🚀 **Advanced Bypass Bot Started!**\n\n"
-                        f"**Bot Username:** @{me.username}\n"
-                        f"**Bot ID:** `{me.id}`\n"
-                        f"**Status:** Online ✅\n\n"
-                        f"💎 **Premium Settings:**\n"
-                        f"┣ **Price:** ₹25 per month\n"
-                        f"┣ **Free Limit:** 3 links/day\n"
-                        f"┣ **Premium:** Unlimited\n"
-                        f"┗ **Auto Reactions:** Active\n\n"
-                        f"👨‍💻 **Developer:** @athithan_220\n"
-                        f"📞 **Support:** @ragnarlothbrockV\n\n"
-                        f"🎉 **All systems operational!**"
-                    )
-                    await self.send_message(
-                        chat_id=ADMIN_ID,
-                        text=startup_message,
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-                    logger.info("✅ Startup notification sent to admin")
-                except Exception as e:
-                    logger.error(f"Failed to send startup message: {e}")
-                    
-        except Exception as e:
-            logger.error(f"❌ Failed to start bot: {e}")
+                logger.error("Session conflict detected! Make sure the bot is not running elsewhere.")
+                raise SystemExit(1)
+            logger.error(f"Failed to start bot: {e}")
             raise
 
     async def stop(self):
         try:
-            if ADMIN_ID:
-                try:
-                    await self.send_message(
-                        chat_id=ADMIN_ID,
-                        text="🔴 **Bot Shutting Down**\n\nThe bot has been stopped successfully.",
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-                except:
-                    pass
-            
+            await self.send_message(
+                chat_id=ADMIN_ID,
+                text="🔴 **Bot Shutting Down**\n\nThe bot has been stopped successfully.",
+                parse_mode=ParseMode.MARKDOWN
+            )
             await super().stop()
-            logger.info("🛑 Bot stopped successfully")
+            logger.info("Bot stopped successfully")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
 
 def main():
     print("=" * 60)
-    print("🚀 Starting Advanced Bypass Bot")
+    print("🚀 Starting Malli4U Bypass Bot")
     print("=" * 60)
     print(f"💎 Premium: ₹25 for unlimited access")
     print(f"🆓 Free: 3 links per day")
-    print(f"👨‍💻 Developer: @athithan_220")
-    print(f"📞 Support: @ragnarlothbrockV")
+    print(f"👨‍💻 Developer: @Malli4U_Admin_Bot")
+    print(f"📞 Support: @M4U_Admin_Bot")
     print("=" * 60)
-    
+
     try:
         # Validate configuration
         if not BOT_TOKEN:
             print("❌ BOT_TOKEN is required!")
             return
-        
         if not API_ID or not API_HASH:
             print("❌ API_ID and API_HASH are required!")
             return
-        
+        from config import MONGO_URI
+        if not MONGO_URI:
+            print("❌ MONGO_URI is required!")
+            return
+
         print("✅ Configuration validation passed")
         print("🤖 Initializing bot...")
-        
+
         # Create and run bot
         app = BypassBot()
         print("🎯 Starting bot...")
         app.run()
-        
+
     except KeyboardInterrupt:
         print("\n🛑 Bot stopped by user (Ctrl+C)")
     except Exception as e:
         print(f"❌ Critical Error: {e}")
         logger.error(f"Critical error in main: {e}")
-    finally:
-        print("👋 Goodbye!")
 
 if __name__ == "__main__":
     main()
