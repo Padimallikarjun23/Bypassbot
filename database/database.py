@@ -1,63 +1,53 @@
-import sqlite3
 import logging
 from datetime import datetime
+from pymongo import MongoClient
+from config import MONGO_URI
 
 logger = logging.getLogger(__name__)
 
 class Database:
-    def __init__(self, db_file="database/users.db"):
-        self.db_file = db_file
-        self.setup()
+    def __init__(self):
+        """Initialize MongoDB connection"""
+        try:
+            self.client = MongoClient(MONGO_URI)
+            self.db = self.client['bypassbot']
+            self.users = self.db['users']
+            self.stats = self.db['stats']
+            logger.info("MongoDB connection established successfully")
+        except Exception as e:
+            logger.error(f"Failed to connect to MongoDB: {e}")
+            raise
 
-    def setup(self):
-        """Create necessary tables if they don't exist"""
-        conn = sqlite3.connect(self.db_file)
-        c = conn.cursor()
-        
-        # Create users table
-        c.execute('''CREATE TABLE IF NOT EXISTS users
-                    (user_id INTEGER PRIMARY KEY,
-                     username TEXT,
-                     join_date TEXT,
-                     is_premium INTEGER DEFAULT 0)''')
-        
-        # Create stats table
-        c.execute('''CREATE TABLE IF NOT EXISTS stats
-                    (user_id INTEGER,
-                     action TEXT,
-                     timestamp TEXT,
-                     FOREIGN KEY (user_id) REFERENCES users(user_id))''')
-        
-        conn.commit()
-        conn.close()
+    def close(self):
+        """Close MongoDB connection"""
+        try:
+            self.client.close()
+            logger.info("MongoDB connection closed")
+        except Exception as e:
+            logger.error(f"Error closing MongoDB connection: {e}")
 
     async def add_user(self, user_id: int, username: str = None):
-        """Add new user to database"""
+        """Add new user to MongoDB users collection"""
         try:
-            conn = sqlite3.connect(self.db_file)
-            c = conn.cursor()
-            
-            c.execute("INSERT OR IGNORE INTO users (user_id, username, join_date) VALUES (?, ?, ?)",
-                     (user_id, username, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-            
-            conn.commit()
-            conn.close()
+            user_id_str = str(user_id)  # Store as string for consistency
+            user_doc = {
+                '_id': user_id_str,
+                'username': username,
+                'join_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            self.users.update_one({'_id': user_id_str}, {'$setOnInsert': user_doc}, upsert=True)
+            logger.debug(f"Added user {user_id} to database")
             return True
         except Exception as e:
-            logger.error(f"Error adding user to database: {e}")
+            logger.error(f"Error adding user {user_id} to database: {e}")
             return False
 
     async def full_userbase(self):
         """Get list of all user IDs"""
         try:
-            conn = sqlite3.connect(self.db_file)
-            c = conn.cursor()
-            
-            c.execute("SELECT user_id FROM users")
-            users = [row[0] for row in c.fetchall()]
-            
-            conn.close()
-            return users
+            users = self.users.find({}, {'_id': 1})
+            user_ids = [int(doc['_id']) for doc in users if doc['_id'].isdigit()]
+            return user_ids
         except Exception as e:
             logger.error(f"Error getting userbase: {e}")
             return []
@@ -65,22 +55,30 @@ class Database:
     async def total_users_count(self):
         """Get total number of users"""
         try:
-            conn = sqlite3.connect(self.db_file)
-            c = conn.cursor()
-            
-            c.execute("SELECT COUNT(*) FROM users")
-            count = c.fetchone()[0]
-            
-            conn.close()
+            count = self.users.count_documents({})
             return count
         except Exception as e:
             logger.error(f"Error getting user count: {e}")
             return 0
 
+    async def log_action(self, user_id: int, action: str):
+        """Log user action in stats collection"""
+        try:
+            user_id_str = str(user_id)  # Store as string for consistency
+            self.stats.insert_one({
+                'user_id': user_id_str,
+                'action': action,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+            logger.debug(f"Logged action '{action}' for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error logging action for user {user_id}: {e}")
+
 # Initialize database
 db = Database()
 
 # Export functions
+add_user = db.add_user
 full_userbase = db.full_userbase
 total_users_count = db.total_users_count
-add_user = db.add_user
+log_action = db.log_action
