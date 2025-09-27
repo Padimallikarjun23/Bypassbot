@@ -34,7 +34,7 @@ SUDO_USERS = os.environ.get("SUDO_USERS", "7901412493,865764383").split(",")
 SUDO_USERS = [uid.strip() for uid in SUDO_USERS if uid.strip().isdigit()]
 
 # MongoDB Configuration
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://user:password@cluster0.mongodb.net/?retryWrites=true&w=majority")
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://Malliofficial:malliofficial@cluster0.db7kygq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 
 # Target Group Configuration
 TARGET_GROUP_ID = os.environ.get("TARGET_GROUP_ID", "-1002900244842")
