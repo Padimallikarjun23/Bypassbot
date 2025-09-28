@@ -22,7 +22,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 PORT = int(os.environ.get("PORT", 8080))
 
 # Owner Configuration
-OWNER_ID = int(os.environ.get("OWNER_ID", "7901412493"))
+OWNER_ID = int(os.environ.get("OWNER_ID", "865764383"))
 
 # Channel Configuration
 FORCE_SUB_CHANNEL1 = os.environ.get("FORCE_SUB_CHANNEL1", None)
