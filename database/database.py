@@ -1,84 +1,68 @@
-import sqlite3
-import logging
+from pymongo import MongoClient
+from pymongo.errors import PyMongoError, ConnectionFailure
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+DB_URL = "mongodb+srv://Malliofficial:malliofficial@cluster0.db7kygq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
-class Database:
-    def __init__(self, db_file="database/users.db"):
-        self.db_file = db_file
-        self.setup()
+class MongoDatabase:
+    def __init__(self):
+        try:
+            self.client = MongoClient(DB_URL)
+            self.db = self.client["Bypass_Bot"]
+            self.users = self.db["users"]
+            self.stats = self.db["stats"]
+            self.setup()
+        except ConnectionFailure as e:
+            print(f"[MongoDB] Connection failed: {e}")
+            raise
 
     def setup(self):
-        """Create necessary tables if they don't exist"""
-        conn = sqlite3.connect(self.db_file)
-        c = conn.cursor()
-        
-        # Create users table
-        c.execute('''CREATE TABLE IF NOT EXISTS users
-                    (user_id INTEGER PRIMARY KEY,
-                     username TEXT,
-                     join_date TEXT,
-                     is_premium INTEGER DEFAULT 0)''')
-        
-        # Create stats table
-        c.execute('''CREATE TABLE IF NOT EXISTS stats
-                    (user_id INTEGER,
-                     action TEXT,
-                     timestamp TEXT,
-                     FOREIGN KEY (user_id) REFERENCES users(user_id))''')
-        
-        conn.commit()
-        conn.close()
+        """Ensure indexes are created."""
+        try:
+            self.users.create_index("user_id", unique=True)
+            self.stats.create_index("user_id")
+        except PyMongoError as e:
+            print(f"[MongoDB] Setup error: {e}")
 
     async def add_user(self, user_id: int, username: str = None):
-        """Add new user to database"""
+        """Add a new user to the database"""
         try:
-            conn = sqlite3.connect(self.db_file)
-            c = conn.cursor()
-            
-            c.execute("INSERT OR IGNORE INTO users (user_id, username, join_date) VALUES (?, ?, ?)",
-                     (user_id, username, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-            
-            conn.commit()
-            conn.close()
+            join_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            user_doc = {
+                "user_id": user_id,
+                "username": username,
+                "join_date": join_date,
+                "is_premium": False
+            }
+            self.users.update_one(
+                {"user_id": user_id},
+                {"$setOnInsert": user_doc},
+                upsert=True
+            )
             return True
-        except Exception as e:
-            logger.error(f"Error adding user to database: {e}")
+        except PyMongoError as e:
+            print(f"[MongoDB] Error adding user: {e}")
             return False
 
     async def full_userbase(self):
         """Get list of all user IDs"""
         try:
-            conn = sqlite3.connect(self.db_file)
-            c = conn.cursor()
-            
-            c.execute("SELECT user_id FROM users")
-            users = [row[0] for row in c.fetchall()]
-            
-            conn.close()
-            return users
-        except Exception as e:
-            logger.error(f"Error getting userbase: {e}")
+            return [doc["user_id"] for doc in self.users.find({}, {"user_id": 1})]
+        except PyMongoError as e:
+            print(f"[MongoDB] Error fetching userbase: {e}")
             return []
 
     async def total_users_count(self):
         """Get total number of users"""
         try:
-            conn = sqlite3.connect(self.db_file)
-            c = conn.cursor()
-            
-            c.execute("SELECT COUNT(*) FROM users")
-            count = c.fetchone()[0]
-            
-            conn.close()
-            return count
-        except Exception as e:
-            logger.error(f"Error getting user count: {e}")
+            return self.users.count_documents({})
+        except PyMongoError as e:
+            print(f"[MongoDB] Error getting user count: {e}")
             return 0
 
+
 # Initialize database
-db = Database()
+db = MongoDatabase()
 
 # Export functions
 full_userbase = db.full_userbase
